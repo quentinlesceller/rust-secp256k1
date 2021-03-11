@@ -58,6 +58,9 @@ pub trait Signing: Context {}
 /// Marker trait for indicating that an instance of `Secp256k1` can be used for verification.
 pub trait Verification: Context {}
 
+/// Marker trait for indicating that an instance of `Secp256k1` can be used for signing, verification and pedersen commitments.
+pub trait Commit: Context {}
+
 /// Represents the set of capabilities needed for signing with a user preallocated memory.
 pub struct SignOnlyPreallocated<'buf> {
     phantom: PhantomData<&'buf ()>,

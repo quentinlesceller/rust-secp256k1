@@ -63,9 +63,15 @@ pub const ONE_KEY: SecretKey = SecretKey([0, 0, 0, 0, 0, 0, 0, 0,
                                           0, 0, 0, 0, 0, 0, 0, 0,
                                           0, 0, 0, 0, 0, 0, 0, 1]);
 
+/// The number 0 encoded as a secret key
+pub const ZERO_KEY: SecretKey = SecretKey([0, 0, 0, 0, 0, 0, 0, 0,
+                                           0, 0, 0, 0, 0, 0, 0, 0,
+                                           0, 0, 0, 0, 0, 0, 0, 0,
+                                           0, 0, 0, 0, 0, 0, 0, 0]);
+
 /// A Secp256k1 public key, used for verification of signatures
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
-pub struct PublicKey(ffi::PublicKey);
+pub struct PublicKey(pub ffi::PublicKey);
 
 impl fmt::LowerHex for PublicKey {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -216,6 +222,25 @@ impl SecretKey {
 serde_impl!(SecretKey, constants::SECRET_KEY_SIZE);
 
 impl PublicKey {
+
+    /// Creates a new public key as the sum of the provided keys
+    #[inline]
+    pub fn from_combination<C: Signing>(secp: &Secp256k1<C>, in_keys: Vec<&PublicKey>)
+                         -> Result<PublicKey, Error> {
+        let mut retkey = unsafe {PublicKey::from(ffi::PublicKey::new())};
+        let in_vec:Vec<*const ffi::PublicKey> = in_keys.iter()
+        .map(|pk| pk.as_ptr())
+        .collect();
+        unsafe {
+            if ffi::secp256k1_ec_pubkey_combine(secp.ctx, &mut retkey.0 as *mut _,
+                                                  in_vec.as_ptr(), in_vec.len() as i32) == 1 {
+                Ok(retkey)
+            } else {
+                Err(InvalidPublicKey)
+            }
+        }
+    }
+
     /// Obtains a raw const pointer suitable for use with FFI functions
     #[inline]
     pub fn as_ptr(&self) -> *const ffi::PublicKey {
