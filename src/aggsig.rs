@@ -231,6 +231,7 @@ pub fn verify_batch<C: Verification>(
             pub_keys_vec.as_ptr(),
             sigs.len(),
         );
+        println!("Destroying scratch space");
         ffi::secp256k1_scratch_space_destroy(scratch);
         result == 1
     }
@@ -394,6 +395,7 @@ impl AggSigContext {
 impl Drop for AggSigContext {
     fn drop(&mut self) {
         unsafe {
+            println!("Destroying scratch space2");
             ffi::secp256k1_aggsig_context_destroy(self.aggsig_ctx);
         }
     }

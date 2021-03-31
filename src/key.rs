@@ -160,7 +160,7 @@ impl SecretKey {
         &mut self
     ) {
         unsafe {
-            let res = ffi::secp256k1_ec_seckey_negate(
+            let res = ffi::secp256k1_ec_privkey_negate(
                 ffi::secp256k1_context_no_precomp,
                 self.as_mut_c_ptr()
             );
@@ -180,7 +180,7 @@ impl SecretKey {
             return Err(Error::InvalidTweak);
         }
         unsafe {
-            if ffi::secp256k1_ec_seckey_tweak_add(
+            if ffi::secp256k1_ec_privkey_tweak_add(
                 ffi::secp256k1_context_no_precomp,
                 self.as_mut_c_ptr(),
                 other.as_c_ptr(),
@@ -205,7 +205,7 @@ impl SecretKey {
             return Err(Error::InvalidTweak);
         }
         unsafe {
-            if ffi::secp256k1_ec_seckey_tweak_mul(
+            if ffi::secp256k1_ec_privkey_tweak_mul(
                 ffi::secp256k1_context_no_precomp,
                 self.as_mut_c_ptr(),
                 other.as_c_ptr(),
