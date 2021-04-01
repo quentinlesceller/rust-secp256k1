@@ -336,11 +336,15 @@ extern "C" {
     pub static secp256k1_context_no_precomp: *const Context;
 
     // Contexts
-    pub fn secp256k1_context_create(flags: c_uint) -> *mut Context;
+    pub fn secp256k1_context_preallocated_size(flags: c_uint) -> size_t;
 
-    pub fn secp256k1_context_clone(cx: *mut Context) -> *mut Context;
-    
-    pub fn secp256k1_context_destroy(cx: *mut Context);
+    pub fn secp256k1_context_preallocated_create(prealloc: *mut c_void, flags: c_uint) -> *mut Context;
+
+    pub fn secp256k1_context_preallocated_destroy(cx: *mut Context);
+
+    pub fn secp256k1_context_preallocated_clone_size(cx: *const Context) -> size_t;
+
+    pub fn secp256k1_context_preallocated_clone(cx: *const Context, prealloc: *mut c_void) -> *mut Context;
 
     pub fn secp256k1_context_randomize(cx: *mut Context,
                                        seed32: *const c_uchar)
@@ -789,6 +793,53 @@ extern "C" {
         message: *mut c_uchar,
     ) -> c_int;
 }
+
+
+ /// A reimplementation of the C function `secp256k1_context_create` in rust.
+ ///
+ /// This function allocates memory, the pointer should be deallocated using `secp256k1_context_destroy`
+ /// A failure to do so will result in a memory leak.
+ ///
+ /// This will create a secp256k1 raw context.
+ // Returns: a newly created context object.
+ //  In:      flags: which parts of the context to initialize.
+ #[no_mangle]
+ #[cfg(all(feature = "std", not(rust_secp_no_symbol_renaming)))]
+ pub unsafe extern "C" fn secp256k1_context_create(flags: c_uint) -> *mut Context {
+     use core::mem;
+     use std::alloc;
+     assert!(ALIGN_TO >= mem::align_of::<usize>());
+     assert!(ALIGN_TO >= mem::align_of::<&usize>());
+     assert!(ALIGN_TO >= mem::size_of::<usize>());
+
+     // We need to allocate `ALIGN_TO` more bytes in order to write the amount of bytes back.
+     let bytes = secp256k1_context_preallocated_size(flags) + ALIGN_TO;
+     let layout = alloc::Layout::from_size_align(bytes, ALIGN_TO).unwrap();
+     let ptr = alloc::alloc(layout);
+     (ptr as *mut usize).write(bytes);
+     // We must offset a whole ALIGN_TO in order to preserve the same alignment
+     // this means we "lose" ALIGN_TO-size_of(usize) for padding.
+     let ptr = ptr.add(ALIGN_TO) as *mut c_void;
+     secp256k1_context_preallocated_create(ptr, flags)
+ }
+
+ /// A reimplementation of the C function `secp256k1_context_destroy` in rust.
+ ///
+ /// This function destroys and deallcates the context created by `secp256k1_context_create`.
+ ///
+ /// The pointer shouldn't be used after passing to this function, consider it as passing it to `free()`.
+ ///
+ #[no_mangle]
+ #[cfg(all(feature = "std", not(rust_secp_no_symbol_renaming)))]
+ pub unsafe extern "C" fn secp256k1_context_destroy(ctx: *mut Context) {
+     use std::alloc;
+     secp256k1_context_preallocated_destroy(ctx);
+     let ptr = (ctx as *mut u8).sub(ALIGN_TO);
+     let bytes = (ptr as *mut usize).read();
+     let layout = alloc::Layout::from_size_align(bytes, ALIGN_TO).unwrap();
+     alloc::dealloc(ptr, layout);
+ }
+
 
 /// **This function is an override for the C function, this is the an edited version of the original description:**
 ///

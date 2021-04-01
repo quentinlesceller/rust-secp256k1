@@ -154,6 +154,19 @@ impl SecretKey {
         }
     }
 
+        /// Converts a `SECRET_KEY_SIZE`-byte slice to a secret key
+        #[inline]
+        pub fn from_slice_no_check(data: &[u8])-> Result<SecretKey, Error> {
+            match data.len() {
+                constants::SECRET_KEY_SIZE => {
+                    let mut ret = [0; constants::SECRET_KEY_SIZE];
+                    ret[..].copy_from_slice(data);
+                    Ok(SecretKey(ret))
+                }
+                _ => Err(InvalidSecretKey)
+            }
+        }
+
     #[inline]
     /// Negates one secret key.
     pub fn negate_assign(

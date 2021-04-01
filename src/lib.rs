@@ -158,7 +158,7 @@ pub use context::*;
 use core::marker::PhantomData;
 use core::ops::Deref;
 use core::mem;
-use ffi::CPtr;
+use ffi::{CPtr, types::AlignedType};
 
 #[cfg(feature = "global-context")]
 pub use context::global::SECP256K1;
@@ -666,7 +666,7 @@ impl<C: Context> Eq for Secp256k1<C> { }
 impl<C: Context> Drop for Secp256k1<C> {
     fn drop(&mut self) {
         unsafe {
-            ffi::secp256k1_context_destroy(self.ctx);
+            ffi::secp256k1_context_preallocated_destroy(self.ctx);
             C::deallocate(self.ctx as _, self.size);
         }
     }
@@ -686,6 +686,14 @@ impl<C: Context> Secp256k1<C> {
     /// this crate.
     pub fn ctx(&self) -> &*mut ffi::Context {
         &self.ctx
+    }
+
+    /// Returns the required memory for a preallocated context buffer in a generic manner(sign/verify/all)
+    pub fn preallocate_size_gen() -> usize {
+        let word_size = mem::size_of::<AlignedType>();
+        let bytes = unsafe { ffi::secp256k1_context_preallocated_size(C::FLAGS) };
+
+        (bytes + word_size - 1) / word_size
     }
 
     /// (Re)randomizes the Secp256k1 context for cheap sidechannel resistance;
@@ -902,12 +910,15 @@ fn from_hex(hex: &str, target: &mut [u8]) -> Result<usize, ()> {
 mod tests {
     use rand::{RngCore, thread_rng};
     use std::str::FromStr;
+    use std::marker::PhantomData;
 
     use key::{SecretKey, PublicKey};
     use super::from_hex;
     use super::constants;
     use super::{Secp256k1, Signature, Message};
     use super::Error::{InvalidMessage, IncorrectSignature, InvalidSignature};
+    use ffi::{self, types::AlignedType};
+    use context::*;
 
     #[cfg(target_arch = "wasm32")]
     use wasm_bindgen_test::wasm_bindgen_test as test;
@@ -919,6 +930,104 @@ mod tests {
             result
         });
     }
+
+    #[test]
+    fn test_manual_create_destroy() {
+        let ctx_full = unsafe { ffi::secp256k1_context_create(AllPreallocated::FLAGS) };
+        let ctx_sign = unsafe { ffi::secp256k1_context_create(SignOnlyPreallocated::FLAGS) };
+        let ctx_vrfy = unsafe { ffi::secp256k1_context_create(VerifyOnlyPreallocated::FLAGS) };
+
+        let size = 0;
+        let full: Secp256k1<AllPreallocated> = Secp256k1{ctx: ctx_full, phantom: PhantomData, size};
+        let sign: Secp256k1<SignOnlyPreallocated> = Secp256k1{ctx: ctx_sign, phantom: PhantomData, size};
+        let vrfy: Secp256k1<VerifyOnlyPreallocated> = Secp256k1{ctx: ctx_vrfy, phantom: PhantomData, size};
+
+        let (sk, pk) = full.generate_keypair(&mut thread_rng());
+        let msg = Message::from_slice(&[2u8; 32]).unwrap();
+        // Try signing
+        assert_eq!(sign.sign(&msg, &sk), full.sign(&msg, &sk));
+        let sig = full.sign(&msg, &sk);
+
+        // Try verifying
+        assert!(vrfy.verify(&msg, &sig, &pk).is_ok());
+        assert!(full.verify(&msg, &sig, &pk).is_ok());
+
+        drop(full);drop(sign);drop(vrfy);
+
+        unsafe { ffi::secp256k1_context_destroy(ctx_vrfy) };
+        unsafe { ffi::secp256k1_context_destroy(ctx_sign) };
+        unsafe { ffi::secp256k1_context_destroy(ctx_full) };
+    }
+
+    #[test]
+    fn test_raw_ctx() {
+        use std::mem::ManuallyDrop;
+
+        let ctx_full = Secp256k1::new();
+        let ctx_sign = Secp256k1::signing_only();
+        let ctx_vrfy = Secp256k1::verification_only();
+
+        let mut full = unsafe {Secp256k1::from_raw_all(ctx_full.ctx)};
+        let mut sign = unsafe {Secp256k1::from_raw_signining_only(ctx_sign.ctx)};
+        let mut vrfy = unsafe {Secp256k1::from_raw_verification_only(ctx_vrfy.ctx)};
+
+        let (sk, pk) = full.generate_keypair(&mut thread_rng());
+        let msg = Message::from_slice(&[2u8; 32]).unwrap();
+        // Try signing
+        assert_eq!(sign.sign(&msg, &sk), full.sign(&msg, &sk));
+        let sig = full.sign(&msg, &sk);
+
+        // Try verifying
+        assert!(vrfy.verify(&msg, &sig, &pk).is_ok());
+        assert!(full.verify(&msg, &sig, &pk).is_ok());
+
+        unsafe {
+            ManuallyDrop::drop(&mut full);
+            ManuallyDrop::drop(&mut sign);
+            ManuallyDrop::drop(&mut vrfy);
+
+        }
+        drop(ctx_full);
+        drop(ctx_sign);
+        drop(ctx_vrfy);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[should_panic]
+    fn test_panic_raw_ctx() {
+        let ctx_vrfy = Secp256k1::verification_only();
+        let raw_ctx_verify_as_full = unsafe {Secp256k1::from_raw_all(ctx_vrfy.ctx)};
+        let (sk, _) = raw_ctx_verify_as_full.generate_keypair(&mut thread_rng());
+        let msg = Message::from_slice(&[2u8; 32]).unwrap();
+        // Try signing
+        raw_ctx_verify_as_full.sign(&msg, &sk);
+    }
+
+    #[test]
+    fn test_preallocation() {
+        let mut buf_ful = vec![AlignedType::zeroed(); Secp256k1::preallocate_size()];
+        let mut buf_sign = vec![AlignedType::zeroed(); Secp256k1::preallocate_signing_size()];
+        let mut buf_vfy = vec![AlignedType::zeroed(); Secp256k1::preallocate_verification_size()];
+
+        let full = Secp256k1::preallocated_new(&mut buf_ful).unwrap();
+        let sign = Secp256k1::preallocated_signing_only(&mut buf_sign).unwrap();
+        let vrfy = Secp256k1::preallocated_verification_only(&mut buf_vfy).unwrap();
+
+//        drop(buf_vfy); // The buffer can't get dropped before the context.
+//        println!("{:?}", buf_ful[5]); // Can't even read the data thanks to the borrow checker.
+
+        let (sk, pk) = full.generate_keypair(&mut thread_rng());
+        let msg = Message::from_slice(&[2u8; 32]).unwrap();
+        // Try signing
+        assert_eq!(sign.sign(&msg, &sk), full.sign(&msg, &sk));
+        let sig = full.sign(&msg, &sk);
+
+        // Try verifying
+        assert!(vrfy.verify(&msg, &sig, &pk).is_ok());
+        assert!(full.verify(&msg, &sig, &pk).is_ok());
+    }
+
 
     #[test]
     fn capabilities() {

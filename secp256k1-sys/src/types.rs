@@ -1,5 +1,5 @@
 #![allow(non_camel_case_types)]
-use core::fmt;
+use core::{fmt, mem};
 
 pub type c_int = i32;
 pub type c_uchar = u8;
@@ -41,6 +41,9 @@ impl AlignedType {
         AlignedType([0u8; 16])
     }
 }
+
+#[cfg(all(feature = "std", not(rust_secp_no_symbol_renaming)))]
+pub(crate) const ALIGN_TO: usize = mem::align_of::<AlignedType>();
 
 #[cfg(test)]
 mod tests {
