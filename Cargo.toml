@@ -29,10 +29,12 @@ global-context = ["std", "rand-std"]
 secp256k1-sys = { version = "0.4.0", default-features = false, path = "./secp256k1-sys" }
 bitcoin_hashes = { version = "0.9", optional = true }
 rand = { version = "0.6", default-features = false, optional = true }
+rand_core = "0.4"
 serde = { version = "1.0", default-features = false, optional = true }
 
 
 [dev-dependencies]
+chrono = "0.4"
 rand = "0.6"
 rand_core = "0.4"
 serde_test = "1.0"
